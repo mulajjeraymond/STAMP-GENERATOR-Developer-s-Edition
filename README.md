@@ -1,0 +1,1 @@
+# STAMP-GENERATOR-Developer-s-Edition
