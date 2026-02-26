@@ -1,0 +1,217 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title> Stamp Genius - Developer Edition</title>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.4.120/pdf.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/html2pdf.js/0.10.1/html2pdf.bundle.min.js"></script>
+    <link href="https://fonts.googleapis.com/css2?family=Orbitron:wght@700&family=Roboto+Mono:wght@500&display=swap" rel="stylesheet">
+
+    <style>
+        :root { --primary: #2980b9; --accent: #e74c3c; --dark: #1a1a1a; }
+        body { display: flex; flex-direction: column; align-items: center; background-color: #f0f2f5; margin: 0; padding: 20px; font-family: 'Segoe UI', sans-serif; }
+        
+        .main-header { font-family: 'Orbitron', sans-serif; color: var(--dark); font-size: 32px; margin-bottom: 5px; }
+
+        #canvas-wrapper {
+            position: relative; padding: 20px; background: #555; border-radius: 8px;
+            max-height: 80vh; max-width: 95vw; overflow: auto; box-shadow: inset 0 0 15px rgba(0,0,0,0.5);
+        }
+
+        #pdf-content {
+            position: relative; width: 800px; height: 600px; background-color: white;
+            background-size: 100% 100%; background-repeat: no-repeat; box-shadow: 0 0 20px rgba(0,0,0,0.3); margin: auto;
+        }
+
+        .draggable { position: absolute; cursor: move; border: 2px dashed transparent; padding: 5px; z-index: 10; transition: border 0.2s; }
+        .draggable.selected { border: 2px solid var(--accent) !important; background: rgba(231, 76, 60, 0.05); }
+        
+        /* The container for the rotation */
+        .stamp-container img { 
+            display: block; 
+            width: 150px; 
+            pointer-events: none; 
+            mix-blend-mode: multiply; 
+            transform-origin: center;
+        }
+
+        .toolbar {
+            background: #ffffff; padding: 12px 25px; border-radius: 50px; 
+            margin-bottom: 15px; display: flex; gap: 15px; align-items: center;
+            box-shadow: 0 4px 20px rgba(0,0,0,0.08); flex-wrap: wrap;
+        }
+
+        .btn { padding: 8px 16px; border: none; border-radius: 20px; cursor: pointer; font-weight: 600; font-size: 11px; color: white; transition: 0.2s; }
+        .btn-upload { background: var(--primary); }
+        .btn-stamp { background: #8e44ad; }
+        .btn-pdf { background: #27ae60; }
+        .btn-refresh { background: #34495e; }
+
+        .control-label { font-size: 10px; font-weight: bold; color: #666; text-transform: uppercase; }
+        .slider-group { display: flex; flex-direction: column; align-items: flex-start; gap: 2px; }
+
+        #loading-overlay { 
+            display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%; 
+            background: rgba(0,0,0,0.7); z-index: 1000; color: white; 
+            flex-direction: column; align-items: center; justify-content: center; 
+        }
+    </style>
+</head>
+<body>
+
+    <div id="loading-overlay"><h2>PROCESSING DOCUMENT...</h2></div>
+    <div class="main-header"> STAMP GENIUS</div>
+    
+    <div class="toolbar">
+        <label class="btn btn-upload">📁 LOAD FILE
+            <input type="file" id="doc-upload" accept="image/*,application/pdf" onchange="processFile(this)">
+        </label>
+
+        <select id="stamp-select" style="padding: 5px; border-radius: 10px; border: 1px solid #ccc;">
+            <option value="ERRIMAT OPERATIONS.jpeg">ERRIMAT OPERATIONS</option>
+            <option value="GLORY OPERATIONS.png">GLORYSTEEL OPERATIONS</option>
+            <option value="E SIGNATURE.jpg">E SIGNATURE</option>
+        </select>
+        <button class="btn btn-stamp" onclick="addSelectedStamp()">+ ADD STAMP</button>
+
+        <div class="slider-group">
+            <span class="control-label">Size</span>
+            <input type="range" id="size-slider" min="50" max="500" value="150" oninput="updateStamp()">
+        </div>
+
+        <div class="slider-group">
+            <span class="control-label">Rotate</span>
+            <input type="range" id="rotate-slider" min="0" max="360" value="0" oninput="updateStamp()">
+        </div>
+
+        <div class="slider-group">
+            <span class="control-label">Transparency</span>
+            <input type="range" id="opacity-slider" min="10" max="100" value="100" oninput="updateStamp()">
+        </div>
+
+        <button class="btn btn-refresh" onclick="location.reload()">🔄 RESET</button>
+        <button class="btn btn-pdf" onclick="generateFullPDF()">💾 SAVE PDF</button>
+    </div>
+
+    <div id="canvas-wrapper">
+        <div id="pdf-content"></div>
+    </div>
+
+    <canvas id="render-helper" style="display:none;"></canvas>
+
+<script>
+    pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.4.120/pdf.worker.min.js';
+    let selectedStamp = null;
+    const canvas = document.getElementById('pdf-content');
+    const loading = document.getElementById('loading-overlay');
+
+    async function processFile(input) {
+        if (!input.files[0]) return;
+        const file = input.files[0];
+        loading.style.display = 'flex';
+        if (file.type === "application/pdf") {
+            const arrayBuffer = await file.arrayBuffer();
+            const pdf = await pdfjsLib.getDocument(arrayBuffer).promise;
+            const page = await pdf.getPage(1);
+            const viewport = page.getViewport({ scale: 2 });
+            canvas.style.width = viewport.width + 'px';
+            canvas.style.height = viewport.height + 'px';
+            const renderCanvas = document.getElementById('render-helper');
+            const context = renderCanvas.getContext('2d');
+            renderCanvas.height = viewport.height;
+            renderCanvas.width = viewport.width;
+            await page.render({ canvasContext: context, viewport: viewport }).promise;
+            canvas.style.backgroundImage = `url(${renderCanvas.toDataURL()})`;
+        } else {
+            const reader = new FileReader();
+            reader.onload = (e) => {
+                const img = new Image();
+                img.onload = () => {
+                    const ratio = img.height / img.width;
+                    canvas.style.width = '850px'; 
+                    canvas.style.height = (850 * ratio) + 'px';
+                    canvas.style.backgroundImage = `url(${e.target.result})`;
+                };
+                img.src = e.target.result;
+            };
+            reader.readAsDataURL(file);
+        }
+        loading.style.display = 'none';
+    }
+
+    function addSelectedStamp() {
+        const div = document.createElement('div');
+        div.className = 'draggable stamp-container';
+        div.style.top = '100px'; div.style.left = '100px';
+        const img = document.createElement('img');
+        img.src = document.getElementById('stamp-select').value;
+        img.style.width = document.getElementById('size-slider').value + 'px';
+        img.style.opacity = document.getElementById('opacity-slider').value / 100;
+        img.style.transform = `rotate(${document.getElementById('rotate-slider').value}deg)`;
+        
+        div.appendChild(img);
+        div.onclick = (e) => { e.stopPropagation(); selectStamp(div); };
+        div.oncontextmenu = (e) => { e.preventDefault(); div.remove(); };
+        canvas.appendChild(div);
+        makeDraggable(div);
+        selectStamp(div);
+    }
+
+    function selectStamp(el) {
+        if (selectedStamp) selectedStamp.classList.remove('selected');
+        selectedStamp = el;
+        selectedStamp.classList.add('selected');
+        const currentImg = selectedStamp.querySelector('img');
+        document.getElementById('size-slider').value = parseInt(currentImg.style.width);
+        document.getElementById('opacity-slider').value = currentImg.style.opacity * 100;
+        
+        // Extract rotation from transform string
+        const transform = currentImg.style.transform;
+        const match = transform.match(/rotate\((.*)deg\)/);
+        document.getElementById('rotate-slider').value = match ? match[1] : 0;
+    }
+
+    function updateStamp() {
+        if (selectedStamp) {
+            const img = selectedStamp.querySelector('img');
+            img.style.width = document.getElementById('size-slider').value + 'px';
+            img.style.opacity = document.getElementById('opacity-slider').value / 100;
+            img.style.transform = `rotate(${document.getElementById('rotate-slider').value}deg)`;
+        }
+    }
+
+    function makeDraggable(el) {
+        let dragging = false;
+        el.addEventListener('mousedown', (e) => {
+            dragging = true;
+            const shiftX = e.clientX - el.getBoundingClientRect().left;
+            const shiftY = e.clientY - el.getBoundingClientRect().top;
+            function moveAt(pageX, pageY) {
+                const container = canvas.getBoundingClientRect();
+                el.style.left = (pageX - container.left - shiftX) + 'px';
+                el.style.top = (pageY - container.top - shiftY) + 'px';
+            }
+            function onMouseMove(e) { if(dragging) moveAt(e.pageX, e.pageY); }
+            document.addEventListener('mousemove', onMouseMove);
+            document.onmouseup = () => { dragging = false; document.removeEventListener('mousemove', onMouseMove); };
+        });
+    }
+
+    function generateFullPDF() {
+        if (selectedStamp) selectedStamp.classList.remove('selected');
+        const element = document.getElementById('pdf-content');
+        const w = element.offsetWidth;
+        const h = element.offsetHeight;
+        html2pdf().set({
+            margin: 0, filename: 'Raymond_Final_Doc.pdf',
+            image: { type: 'jpeg', quality: 1 },
+            html2canvas: { scale: 2, useCORS: true },
+            jsPDF: { unit: 'px', format: [w, h], orientation: w > h ? 'l' : 'p' }
+        }).from(element).save();
+    }
+
+    canvas.onclick = () => { if (selectedStamp) selectedStamp.classList.remove('selected'); selectedStamp = null; };
+</script>
+
+</body>
+</html>
