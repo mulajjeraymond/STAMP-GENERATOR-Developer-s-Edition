@@ -203,7 +203,7 @@
         const w = element.offsetWidth;
         const h = element.offsetHeight;
         html2pdf().set({
-            margin: 0, filename: 'Raymond_Final_Doc.pdf',
+            margin: 0, filename: 'stampledDoc-D.pdf',
             image: { type: 'jpeg', quality: 1 },
             html2canvas: { scale: 2, useCORS: true },
             jsPDF: { unit: 'px', format: [w, h], orientation: w > h ? 'l' : 'p' }
@@ -214,4 +214,5 @@
 </script>
 
 </body>
+
 </html>
